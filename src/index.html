@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Habit Tracker Pro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root {
+            --bg-color: #f4f6f8;
+            --text-color: #333;
+            --card-bg: #fff;
+            --border-color: #e1e4e8;
+            --btn-color: #4a90e2;
+            --btn-hover: #357abd;
+            --success: #22c55e;
+            --empty-box: #ebedf0;
+        }
+
+        body.dark-mode {
+            --bg-color: #0d1117;
+            --text-color: #c9d1d9;
+            --card-bg: #161b22;
+            --border-color: #30363d;
+            --btn-color: #238636;
+            --btn-hover: #2ea043;
+            --success: #2ea043;
+            --empty-box: #21262d;
+        }
+
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg-color); color: var(--text-color); max-width: 700px; margin: 40px auto; padding: 0 20px; transition: background 0.3s, color 0.3s; }
+
+        .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        h1 { margin: 0; }
+
+        .form-box { display: flex; gap: 10px; margin-bottom: 25px; flex-wrap: wrap; }
+        input, select { padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-color); }
+        input[type="text"] { flex: 1; min-width: 200px; }
+
+        button { padding: 10px 16px; cursor: pointer; border: none; border-radius: 6px; background: var(--btn-color); color: white; font-weight: bold; transition: 0.2s; }
+        button:hover { background: var(--btn-hover); }
+
+        .habit { padding: 16px; margin: 12px 0; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .habit.done { border-color: var(--success); }
+
+        .habit-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+        .habit-title { font-size: 18px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
+        .badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #e1e4e8; color: #333; }
+        .badge.bad { background: #ffebe9; color: #cf222e; }
+
+        .stats { font-size: 13px; color: #666; margin-top: 6px; line-height: 1.5; }
+        .dark-mode .stats { color: #8b949e; }
+        .percent { font-weight: bold; color: var(--btn-color); }
+
+        .note-text { font-size: 12px; font-style: italic; margin-top: 6px; color: var(--success); }
+
+        .actions { display: flex; gap: 6px; }
+        .del { background: #e74c3c; padding: 8px 12px; }
+        .del:hover { background: #c0392b; }
+
+        .heatmap { display: flex; gap: 4px; margin-top: 12px; flex-wrap: wrap; }
+        .day-box { width: 16px; height: 16px; border-radius: 3px; background: var(--empty-box); }
+        .day-box.filled { background: var(--success); }
+
+        .theme-toggle { background: transparent; color: var(--text-color); font-size: 20px; padding: 5px 10px; border: 1px solid var(--border-color); }
+        .theme-toggle:hover { background: var(--border-color); }
+    </style>
+</head>
+<body>
+
+<div class="header-top">
+    <h1>🔥 Habit Tracker Pro</h1>
+    <button class="theme-toggle" onclick="toggleTheme()">🌙</button>
+</div>
+
+<div class="form-box">
+    <input type="text" id="name" placeholder="New habit (e.g., Read 10 pages)" />
+    <select id="type">
+        <option value="Good">✅ Good Habit</option>
+        <option value="Bad">🚫 Bad Habit (Avoid)</option>
+    </select>
+    <button onclick="addHabit()">Add Habit</button>
+</div>
+
+<div id="list"></div>
+
+<script>
+    // Check local storage for theme
+    if (localStorage.getItem('theme') === 'dark') {
+        document.body.classList.add('dark-mode');
+        document.querySelector('.theme-toggle').innerText = '☀️';
+    }
+
+    function toggleTheme() {
+        document.body.classList.toggle('dark-mode');
+        const isDark = document.body.classList.contains('dark-mode');
+        localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        document.querySelector('.theme-toggle').innerText = isDark ? '☀️' : '🌙';
+    }
+
+    async function load() {
+        const res = await fetch('/habits');
+        const habits = await res.json();
+        const list = document.getElementById('list');
+        list.innerHTML = '';
+
+        if (habits.length === 0) {
+            list.innerHTML = '<p style="text-align:center; color:#888;">No habits yet. Add one above to get started!</p>';
+            return;
+        }
+
+        habits.forEach(h => {
+            const div = document.createElement('div');
+            div.className = 'habit' + (h.doneToday ? ' done' : '');
+
+            // Generate last 30 days for heatmap
+            let heatmapHtml = '<div class="heatmap">';
+            const today = new Date();
+            let completedInLast30 = 0;
+
+            for (let i = 29; i >= 0; i--) {
+                const d = new Date(today);
+                d.setDate(today.getDate() - i);
+                const dateStr = d.toISOString().split('T')[0];
+                const isFilled = h.history.includes(dateStr);
+                if (isFilled) completedInLast30++;
+                heatmapHtml += `<div class="day-box ${isFilled ? 'filled' : ''}" title="${dateStr}"></div>`;
+            }
+            heatmapHtml += '</div>';
+
+            // Calculate percentage
+            const percent = Math.round((completedInLast30 / 30) * 100);
+
+            const badge = h.type === 'Bad' ? '<span class="badge bad">Bad Habit</span>' : '<span class="badge">Good Habit</span>';
+            const noteHtml = h.latestNote ? `<div class="note-text">📝 Latest Note: "${h.latestNote}"</div>` : '';
+
+            div.innerHTML = `
+        <div class="habit-header">
+          <div>
+            <div class="habit-title">${h.name} ${badge}</div>
+            <div class="stats">
+              🔥 Streak: <b>${h.streak} days</b> &nbsp;|&nbsp; 📊 30-Day Completion: <span class="percent">${percent}%</span>
+            </div>
+            ${noteHtml}
+          </div>
+          <div class="actions">
+            <button onclick="checkIn(${h.id})">${h.doneToday ? '✓ Done' : 'Check in'}</button>
+            <button class="del" onclick="remove(${h.id})">X</button>
+          </div>
+        </div>
+        ${heatmapHtml}
+      `;
+            list.appendChild(div);
+        });
+    }
+
+    async function addHabit() {
+        const name = document.getElementById('name').value.trim();
+        const type = document.getElementById('type').value;
+        if (!name) return;
+
+        await fetch('/habits', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ name: name, type: type })
+        });
+
+        document.getElementById('name').value = '';
+        load();
+    }
+
+    async function checkIn(id) {
+        // Prompt for a note (optional)
+        const note = prompt("Add a quick note for today (optional):", "");
+
+        await fetch('/habits/' + id + '/checkin', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ note: note || "" })
+        });
+        load();
+    }
+
+    async function remove(id) {
+        if (!confirm('Delete this habit? (This will delete all its history)')) return;
+        await fetch('/habits/' + id, { method: 'DELETE' });
+        load();
+    }
+
+    load();
+</script>
+</body>
+</html>
